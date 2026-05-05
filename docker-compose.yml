@@ -1,0 +1,36 @@
+services:
+  app:
+    build: ./app
+    environment:
+      DB_HOST_B64: "ZGI="
+      DB_USER_B64: "YWRtaW4="
+      DB_PASS_B64: "YWRtaW5wYXNz"
+      DB_NAME_B64: "Y2xvdWRzZWM="
+      CAMPAING: "=MWZzRWdvx2Y"
+      REDIS_HOST: "redis"
+      BASELINE_PATH: "/app/data/baseline.json"
+    volumes:
+      - ./data:/app/data:ro
+    depends_on:
+      - db
+      - redis
+    networks:
+      - internal
+  db:
+    image: postgres:14
+    environment:
+      POSTGRES_DB: cloudsec
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: adminpass
+    volumes:
+      - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - internal
+  redis:
+    image: redis:6
+    networks:
+      - internal
+
+networks:
+  internal:
+    driver: bridge

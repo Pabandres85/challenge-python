@@ -1,0 +1,9 @@
+flask
+psycopg2-binary
+redis
+pyjwt
+cryptography
+gunicorn
+requests
+pytest
+pytest-flask

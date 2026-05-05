@@ -1,0 +1,26 @@
+[
+  {
+    "resource_id": "vm-001",
+    "type": "VM",
+    "instance_type": "t2.large",
+    "tags": {"environment": "production"},
+    "security_groups": [
+      {
+        "group_id": "sg-001",
+        "rules": [
+          {"protocol": "tcp", "port": 80, "source": "0.0.0.0/0"},
+          {"protocol": "tcp", "port": 22, "source": "0.0.0.0/0"}
+        ]
+      }
+    ]
+  },
+  {
+    "resource_id": "lb-001",
+    "type": "LoadBalancer",
+    "listeners": [
+      {"protocol": "HTTP", "port": 80},
+      {"protocol": "HTTPS", "port": 443}
+    ],
+    "tags": {"environment": "production"}
+  }
+]
