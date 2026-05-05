@@ -6,6 +6,7 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY main.py .
+COPY drift_detector.py .
 COPY keys/ /app/keys/
 
 RUN chmod 600 /app/keys/private_key.pem && chmod 644 /app/keys/public_key.pem
