@@ -81,7 +81,7 @@ FLAG{congrats_you_made_it}
 | Clave privada RSA en la imagen Docker | Crítico — permite forjar cualquier JWT | Usar montaje de secretos (Docker secrets, AWS Secrets Manager) |
 | Credenciales de BD en Base64 | Alto — trivialmente decodificables | Usar variables de entorno cifradas o vault |
 | Red interna sin TLS | Medio — tráfico en claro entre contenedores | Mutual TLS o service mesh |
-| `str(e)` expuesto en `/users` | Medio — fuga de detalles internos | Logging interno, mensaje genérico al cliente |
+| ~~`str(e)` expuesto en `/users`~~ | Medio — fuga de detalles internos | ✅ Corregido — retorna `"Error al consultar usuarios"` en lugar de detalles internos |
 | Sin rate limiting en `/admin/flag` | Medio — permite fuerza bruta de tokens | Implementar `flask-limiter` |
 | Variable de entorno con typo `CAMPAING` | Bajo — frágil en mantenimiento | Renombrar a `CAMPAIGN` |
 | README con payload incorrecto (`karim/titular`) | Bajo — documentación engañosa | Corregir payload de ejemplo |
